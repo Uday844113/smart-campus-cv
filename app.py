@@ -3,7 +3,12 @@ from pathlib import Path
 
 import cv2
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+
+from streamlit_webrtc import (
+    webrtc_streamer,
+    VideoProcessorBase,
+    RTCConfiguration,
+)
 
 from tracker import PersonTracker
 from analytics import AttendanceAnalytics
@@ -36,25 +41,28 @@ VIDEO_PATH = BASE_DIR / "video7.mp4"
 st.markdown(
     """
     <style>
+
     .main-title {
         font-size: 40px;
         font-weight: 700;
+        color: #1f2937;
         margin-bottom: 0;
     }
 
     .subtitle {
         color: #6b7280;
         font-size: 16px;
-        margin-bottom: 15px;
+        margin-top: 4px;
     }
 
     .status-box {
-        padding: 12px;
+        padding: 12px 15px;
         border: 1px solid #e5e7eb;
         border-radius: 10px;
         background: #f8fafc;
         margin-bottom: 10px;
     }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -95,17 +103,25 @@ st.divider()
 
 
 # ============================================================
-# LOAD TRACKER
+# LOAD YOLO TRACKER
 # ============================================================
 
 if st.session_state.tracker is None:
+
     try:
+
         st.session_state.tracker = PersonTracker(
             model_name="yolo11n.pt"
         )
+
     except Exception as e:
-        st.error(f"Unable to load YOLO model: {e}")
+
+        st.error(
+            f"Unable to load YOLO model: {e}"
+        )
+
         st.stop()
+
 
 tracker = st.session_state.tracker
 
@@ -120,7 +136,10 @@ with st.sidebar:
 
     source = st.selectbox(
         "Select Video Source",
-        ["video7.mp4", "Webcam"],
+        [
+            "video7.mp4",
+            "Webcam",
+        ],
         index=0,
     )
 
@@ -152,7 +171,10 @@ with st.sidebar:
 
     entry_direction = st.selectbox(
         "Entry Direction",
-        ["top_to_bottom", "bottom_to_top"],
+        [
+            "top_to_bottom",
+            "bottom_to_top",
+        ],
         index=0,
     )
 
@@ -178,20 +200,22 @@ with st.sidebar:
     st.caption("Cloud Demo")
 
     st.info(
-        "Use video7.mp4 for the demo video. "
-        "Select Webcam to process your browser camera."
+        "Use video7.mp4 for the demo stream or select "
+        "Webcam to process your browser camera."
     )
 
 
 # ============================================================
-# ANALYTICS
+# ANALYTICS OBJECT
 # ============================================================
 
 if st.session_state.analytics is None:
+
     st.session_state.analytics = AttendanceAnalytics(
         line_position=line_position,
         entry_direction=entry_direction,
     )
+
 
 analytics = st.session_state.analytics
 
@@ -200,14 +224,18 @@ analytics.entry_direction = entry_direction
 
 
 # ============================================================
-# BUTTONS
+# BUTTON ACTIONS
 # ============================================================
 
 if start_button:
+
     st.session_state.video_running = True
 
+
 if stop_button:
+
     st.session_state.video_running = False
+
 
 if reset_button:
 
@@ -215,7 +243,9 @@ if reset_button:
 
     st.session_state.video_running = False
 
-    st.success("Analytics reset successfully.")
+    st.success(
+        "Analytics reset successfully."
+    )
 
 
 # ============================================================
@@ -247,7 +277,7 @@ def get_frame_quality(frame):
 # SEATED / STANDING-MOVING ESTIMATION
 # ============================================================
 
-def estimate_posture(boxes, frame_height):
+def estimate_posture(boxes):
 
     seated = 0
     standing_moving = 0
@@ -255,7 +285,7 @@ def estimate_posture(boxes, frame_height):
     if boxes is None:
         return seated, standing_moving
 
-    if len(boxes) == 0:
+    if boxes.xyxy is None:
         return seated, standing_moving
 
     xyxy = boxes.xyxy.cpu().tolist()
@@ -264,23 +294,24 @@ def estimate_posture(boxes, frame_height):
 
         x1, y1, x2, y2 = box
 
-        width = max(1, x2 - x1)
-        height = max(1, y2 - y1)
+        width = max(
+            1.0,
+            x2 - x1,
+        )
+
+        height = max(
+            1.0,
+            y2 - y1,
+        )
 
         aspect_ratio = height / width
 
-        # Position of person's lower body in frame
-        bottom_position = y2 / max(1, frame_height)
-
-        # ----------------------------------------------------
-        # Lightweight classroom posture heuristic
+        # Lightweight classroom heuristic.
         #
-        # Shorter / wider bounding boxes:
-        #     estimated seated
+        # Shorter/wider person boxes are estimated as seated.
+        # Taller boxes are estimated as standing/moving.
         #
-        # Taller bounding boxes:
-        #     estimated standing / moving
-        # ----------------------------------------------------
+        # This is a prototype heuristic, not true pose estimation.
 
         if aspect_ratio < 1.35:
 
@@ -307,11 +338,15 @@ def draw_overlay(
     quality,
     tracking_ids,
     line_y,
+    event,
 ):
 
     height, width = frame.shape[:2]
 
-    # Entry / Exit line
+    # --------------------------------------------------------
+    # ENTRY / EXIT LINE
+    # --------------------------------------------------------
+
     cv2.line(
         frame,
         (0, line_y),
@@ -323,20 +358,29 @@ def draw_overlay(
     cv2.putText(
         frame,
         "ENTRY / EXIT LINE",
-        (20, max(30, line_y - 10)),
+        (
+            20,
+            max(
+                30,
+                line_y - 10,
+            ),
+        ),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.60,
         (0, 255, 255),
         2,
     )
 
-    # Information panel
+    # --------------------------------------------------------
+    # INFORMATION PANEL
+    # --------------------------------------------------------
+
     overlay = frame.copy()
 
     cv2.rectangle(
         overlay,
         (10, 10),
-        (430, 220),
+        (490, 270),
         (20, 20, 20),
         -1,
     )
@@ -348,6 +392,10 @@ def draw_overlay(
         0.35,
         0,
     )
+
+    # --------------------------------------------------------
+    # METRICS
+    # --------------------------------------------------------
 
     cv2.putText(
         frame,
@@ -374,7 +422,7 @@ def draw_overlay(
         f"Standing/Moving: {standing_moving}",
         (25, 104),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.62,
+        0.58,
         (255, 255, 255),
         2,
     )
@@ -384,7 +432,7 @@ def draw_overlay(
         f"Unique Entries: {unique_entries}",
         (25, 135),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.60,
+        0.58,
         (255, 255, 255),
         2,
     )
@@ -409,16 +457,42 @@ def draw_overlay(
         2,
     )
 
-    # Tracking IDs
+    # --------------------------------------------------------
+    # EVENT
+    # --------------------------------------------------------
+
+    event_text = event
+
+    if len(event_text) > 48:
+        event_text = event_text[:48] + "..."
+
+    cv2.putText(
+        frame,
+        f"Event: {event_text}",
+        (25, 228),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.50,
+        (0, 255, 255),
+        2,
+    )
+
+    # --------------------------------------------------------
+    # TRACKING IDs
+    # --------------------------------------------------------
+
     if tracking_ids:
 
         ids_text = ", ".join(
-            str(x)
-            for x in sorted(tracking_ids)
+            str(track_id)
+            for track_id in sorted(tracking_ids)
         )
 
-        if len(ids_text) > 55:
-            ids_text = ids_text[:55] + "..."
+        if len(ids_text) > 60:
+
+            ids_text = (
+                ids_text[:60]
+                + "..."
+            )
 
         cv2.putText(
             frame,
@@ -434,10 +508,14 @@ def draw_overlay(
 
 
 # ============================================================
-# PROCESS FRAME
+# PROCESS ONE FRAME
 # ============================================================
 
 def process_frame(frame):
+
+    # --------------------------------------------------------
+    # YOLO + BoT-SORT
+    # --------------------------------------------------------
 
     result = tracker.model.track(
         frame,
@@ -447,6 +525,10 @@ def process_frame(frame):
         tracker="botsort_reid.yaml",
         verbose=False,
     )[0]
+
+    # --------------------------------------------------------
+    # ENTRY / EXIT ANALYTICS
+    # --------------------------------------------------------
 
     (
         present,
@@ -459,13 +541,25 @@ def process_frame(frame):
         result.boxes,
     )
 
-    # Posture estimation
+    # --------------------------------------------------------
+    # POSTURE
+    # --------------------------------------------------------
+
     seated, standing_moving = estimate_posture(
-        result.boxes,
-        frame.shape[0],
+        result.boxes
     )
 
-    quality = get_frame_quality(frame)
+    # --------------------------------------------------------
+    # QUALITY
+    # --------------------------------------------------------
+
+    quality = get_frame_quality(
+        frame
+    )
+
+    # --------------------------------------------------------
+    # ROOM
+    # --------------------------------------------------------
 
     room_status = (
         "Occupied"
@@ -473,7 +567,15 @@ def process_frame(frame):
         else "Empty"
     )
 
+    # --------------------------------------------------------
+    # YOLO BOXES
+    # --------------------------------------------------------
+
     output = result.plot()
+
+    # --------------------------------------------------------
+    # APPLICATION OVERLAY
+    # --------------------------------------------------------
 
     output = draw_overlay(
         output,
@@ -485,6 +587,7 @@ def process_frame(frame):
         quality,
         tracking_ids,
         line_y,
+        event,
     )
 
     return (
@@ -512,6 +615,10 @@ def run_video_file():
 
     st.subheader("📊 Status")
 
+    # --------------------------------------------------------
+    # Top metrics
+    # --------------------------------------------------------
+
     c1, c2, c3, c4 = st.columns(4)
 
     present_placeholder = c1.empty()
@@ -519,21 +626,37 @@ def run_video_file():
     room_placeholder = c3.empty()
     quality_placeholder = c4.empty()
 
+    # --------------------------------------------------------
+    # Posture metrics
+    # --------------------------------------------------------
+
     c5, c6, c7 = st.columns(3)
 
     seated_placeholder = c5.empty()
     standing_placeholder = c6.empty()
     event_placeholder = c7.empty()
 
+    # --------------------------------------------------------
+    # Tracking IDs
+    # --------------------------------------------------------
+
     ids_placeholder = st.empty()
+
+    # --------------------------------------------------------
+    # Check video
+    # --------------------------------------------------------
 
     if not VIDEO_PATH.exists():
 
         st.error(
-            f"video7.mp4 not found: {VIDEO_PATH}"
+            f"video7.mp4 not found at:\n{VIDEO_PATH}"
         )
 
         return
+
+    # --------------------------------------------------------
+    # Open video
+    # --------------------------------------------------------
 
     cap = cv2.VideoCapture(
         str(VIDEO_PATH)
@@ -542,19 +665,26 @@ def run_video_file():
     if not cap.isOpened():
 
         st.error(
-            f"Unable to open video source: {VIDEO_PATH}"
+            f"Unable to open video source:\n{VIDEO_PATH}"
         )
 
         return
 
-    frame_delay = 1.0 / processing_fps
+    frame_delay = (
+        1.0 / processing_fps
+    )
+
+    # --------------------------------------------------------
+    # Processing loop
+    # --------------------------------------------------------
 
     while st.session_state.video_running:
 
-        start_time = time.time()
+        loop_start = time.time()
 
         ret, frame = cap.read()
 
+        # Restart when video reaches end
         if not ret:
 
             cap.set(
@@ -576,7 +706,9 @@ def run_video_file():
                 tracking_ids,
                 quality,
                 room_status,
-            ) = process_frame(frame)
+            ) = process_frame(
+                frame
+            )
 
         except Exception as e:
 
@@ -585,6 +717,10 @@ def run_video_file():
             )
 
             break
+
+        # ----------------------------------------------------
+        # Display
+        # ----------------------------------------------------
 
         output_rgb = cv2.cvtColor(
             output,
@@ -596,6 +732,10 @@ def run_video_file():
             channels="RGB",
             use_container_width=True,
         )
+
+        # ----------------------------------------------------
+        # Metrics
+        # ----------------------------------------------------
 
         present_placeholder.metric(
             "Currently Present",
@@ -632,53 +772,104 @@ def run_video_file():
             event,
         )
 
-        ids_text = (
-            ", ".join(
-                str(x)
-                for x in sorted(tracking_ids)
+        # ----------------------------------------------------
+        # Tracking IDs
+        # ----------------------------------------------------
+
+        if tracking_ids:
+
+            ids_text = ", ".join(
+                str(track_id)
+                for track_id in sorted(
+                    tracking_ids
+                )
             )
-            if tracking_ids
-            else "None"
-        )
+
+        else:
+
+            ids_text = "None"
 
         ids_placeholder.markdown(
             f"""
             <div class="status-box">
-            <b>Tracking IDs:</b> {ids_text}
+                <b>Tracking IDs:</b> {ids_text}
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        elapsed = time.time() - start_time
+        # ----------------------------------------------------
+        # FPS control
+        # ----------------------------------------------------
 
-        sleep_time = frame_delay - elapsed
+        elapsed = (
+            time.time()
+            - loop_start
+        )
+
+        sleep_time = (
+            frame_delay
+            - elapsed
+        )
 
         if sleep_time > 0:
-            time.sleep(sleep_time)
+
+            time.sleep(
+                sleep_time
+            )
+
+    # --------------------------------------------------------
+    # Release
+    # --------------------------------------------------------
 
     cap.release()
 
 
 # ============================================================
-# WEBRTC PROCESSOR
+# WEBRTC WEBCAM PROCESSOR
 # ============================================================
 
-class SmartCampusVideoProcessor(VideoProcessorBase):
+class SmartCampusVideoProcessor(
+    VideoProcessorBase
+):
 
     def recv(self, frame):
 
+        # Browser webcam frame
         img = frame.to_ndarray(
             format="bgr24"
         )
 
         try:
 
-            output, *_ = process_frame(img)
+            (
+                output,
+                present,
+                unique_entries,
+                seated,
+                standing_moving,
+                event,
+                tracking_ids,
+                quality,
+                room_status,
+            ) = process_frame(
+                img
+            )
 
-        except Exception:
+        except Exception as e:
 
             output = img
+
+            # Show processing failure directly
+            cv2.putText(
+                output,
+                "Processing error",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 0, 255),
+                2,
+            )
 
         return frame.from_ndarray(
             output,
@@ -687,10 +878,14 @@ class SmartCampusVideoProcessor(VideoProcessorBase):
 
 
 # ============================================================
-# MAIN
+# MAIN SOURCE
 # ============================================================
 
 if source == "video7.mp4":
+
+    # --------------------------------------------------------
+    # VIDEO FILE
+    # --------------------------------------------------------
 
     if st.session_state.video_running:
 
@@ -739,17 +934,18 @@ if source == "video7.mp4":
         )
 
 
-# ============================================================
-# WEBCAM
-# ============================================================
-
 else:
+
+    # ========================================================
+    # WEBCAM
+    # ========================================================
 
     st.subheader("📹 Live Webcam")
 
     st.info(
-        "Click START and allow camera access "
-        "when your browser asks for permission."
+        "Click START and allow camera access. "
+        "Move across the yellow Entry / Exit line "
+        "to test entry and exit detection."
     )
 
     rtc_configuration = RTCConfiguration(
@@ -766,7 +962,9 @@ else:
 
     webrtc_streamer(
         key="smart-campus-webcam",
-        video_processor_factory=SmartCampusVideoProcessor,
+        video_processor_factory=(
+            SmartCampusVideoProcessor
+        ),
         rtc_configuration=rtc_configuration,
         media_stream_constraints={
             "video": True,
@@ -775,31 +973,42 @@ else:
         async_processing=True,
     )
 
-    st.subheader("📊 Webcam Analytics")
+    # --------------------------------------------------------
+    # Webcam instructions
+    # --------------------------------------------------------
 
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Currently Present",
-        "Live",
+    st.subheader(
+        "📊 Webcam Analytics"
     )
 
-    c2.metric(
-        "Unique Entries",
-        "Live",
+    st.markdown(
+        """
+        <div class="status-box">
+
+        <b>Entry / Exit Test</b><br>
+
+        1. Stand above the yellow line.<br>
+        2. Move completely across the line.<br>
+        3. The overlay should show
+        <b>Entry detected — ID XX</b>.<br>
+        4. Move back across the line to test exit.
+
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    c3.metric(
-        "Seated",
-        "Live",
-    )
+    st.markdown(
+        """
+        <div class="status-box">
 
-    c4.metric(
-        "Standing / Moving",
-        "Live",
-    )
+        <b>Prototype limitation:</b>
+        Seated vs. Standing/Moving is currently estimated
+        using person bounding-box geometry. A production
+        implementation would use pose estimation for
+        stronger posture classification.
 
-    st.caption(
-        "Seated / Standing classification is an estimated "
-        "bounding-box based posture classification."
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
