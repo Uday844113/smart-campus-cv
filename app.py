@@ -107,7 +107,6 @@ if st.session_state.tracker is None:
         st.error(f"Unable to load YOLO model: {e}")
         st.stop()
 
-
 tracker = st.session_state.tracker
 
 
@@ -121,10 +120,7 @@ with st.sidebar:
 
     source = st.selectbox(
         "Select Video Source",
-        [
-            "video7.mp4",
-            "Webcam",
-        ],
+        ["video7.mp4", "Webcam"],
         index=0,
     )
 
@@ -156,10 +152,7 @@ with st.sidebar:
 
     entry_direction = st.selectbox(
         "Entry Direction",
-        [
-            "top_to_bottom",
-            "bottom_to_top",
-        ],
+        ["top_to_bottom", "bottom_to_top"],
         index=0,
     )
 
@@ -195,7 +188,6 @@ with st.sidebar:
 # ============================================================
 
 if st.session_state.analytics is None:
-
     st.session_state.analytics = AttendanceAnalytics(
         line_position=line_position,
         entry_direction=entry_direction,
@@ -245,10 +237,60 @@ def get_frame_quality(frame):
     if sharpness > 100:
         return "Clear"
 
-    if sharpness > 40:
+    elif sharpness > 40:
         return "Moderate"
 
     return "Blurry"
+
+
+# ============================================================
+# SEATED / STANDING-MOVING ESTIMATION
+# ============================================================
+
+def estimate_posture(boxes, frame_height):
+
+    seated = 0
+    standing_moving = 0
+
+    if boxes is None:
+        return seated, standing_moving
+
+    if len(boxes) == 0:
+        return seated, standing_moving
+
+    xyxy = boxes.xyxy.cpu().tolist()
+
+    for box in xyxy:
+
+        x1, y1, x2, y2 = box
+
+        width = max(1, x2 - x1)
+        height = max(1, y2 - y1)
+
+        aspect_ratio = height / width
+
+        # Position of person's lower body in frame
+        bottom_position = y2 / max(1, frame_height)
+
+        # ----------------------------------------------------
+        # Lightweight classroom posture heuristic
+        #
+        # Shorter / wider bounding boxes:
+        #     estimated seated
+        #
+        # Taller bounding boxes:
+        #     estimated standing / moving
+        # ----------------------------------------------------
+
+        if aspect_ratio < 1.35:
+
+            seated += 1
+
+        else:
+
+            standing_moving += 1
+
+    return seated, standing_moving
 
 
 # ============================================================
@@ -259,6 +301,8 @@ def draw_overlay(
     frame,
     present,
     unique_entries,
+    seated,
+    standing_moving,
     room_status,
     quality,
     tracking_ids,
@@ -267,7 +311,7 @@ def draw_overlay(
 
     height, width = frame.shape[:2]
 
-    # Entry/Exit line
+    # Entry / Exit line
     cv2.line(
         frame,
         (0, line_y),
@@ -292,7 +336,7 @@ def draw_overlay(
     cv2.rectangle(
         overlay,
         (10, 10),
-        (390, 165),
+        (430, 220),
         (20, 20, 20),
         -1,
     )
@@ -310,7 +354,27 @@ def draw_overlay(
         f"Present: {present}",
         (25, 42),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
+        0.68,
+        (255, 255, 255),
+        2,
+    )
+
+    cv2.putText(
+        frame,
+        f"Seated: {seated}",
+        (25, 73),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.62,
+        (255, 255, 255),
+        2,
+    )
+
+    cv2.putText(
+        frame,
+        f"Standing/Moving: {standing_moving}",
+        (25, 104),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.62,
         (255, 255, 255),
         2,
     )
@@ -318,9 +382,9 @@ def draw_overlay(
     cv2.putText(
         frame,
         f"Unique Entries: {unique_entries}",
-        (25, 72),
+        (25, 135),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.60,
         (255, 255, 255),
         2,
     )
@@ -328,9 +392,9 @@ def draw_overlay(
     cv2.putText(
         frame,
         f"Room: {room_status}",
-        (25, 102),
+        (25, 166),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.60,
         (255, 255, 255),
         2,
     )
@@ -338,13 +402,14 @@ def draw_overlay(
     cv2.putText(
         frame,
         f"Quality: {quality}",
-        (25, 132),
+        (25, 197),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        0.60,
         (255, 255, 255),
         2,
     )
 
+    # Tracking IDs
     if tracking_ids:
 
         ids_text = ", ".join(
@@ -352,15 +417,15 @@ def draw_overlay(
             for x in sorted(tracking_ids)
         )
 
-        if len(ids_text) > 50:
-            ids_text = ids_text[:50] + "..."
+        if len(ids_text) > 55:
+            ids_text = ids_text[:55] + "..."
 
         cv2.putText(
             frame,
             f"IDs: {ids_text}",
             (25, height - 25),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
+            0.52,
             (255, 255, 255),
             2,
         )
@@ -369,12 +434,11 @@ def draw_overlay(
 
 
 # ============================================================
-# COMMON PROCESSING FUNCTION
+# PROCESS FRAME
 # ============================================================
 
 def process_frame(frame):
 
-    # YOLO + BoT-SORT
     result = tracker.model.track(
         frame,
         persist=True,
@@ -384,32 +448,39 @@ def process_frame(frame):
         verbose=False,
     )[0]
 
-    # Analytics
-    present, unique_entries, event, tracking_ids, line_y = (
-        analytics.update(
-            frame,
-            result.boxes,
-        )
+    (
+        present,
+        unique_entries,
+        event,
+        tracking_ids,
+        line_y,
+    ) = analytics.update(
+        frame,
+        result.boxes,
     )
 
-    # Frame quality
+    # Posture estimation
+    seated, standing_moving = estimate_posture(
+        result.boxes,
+        frame.shape[0],
+    )
+
     quality = get_frame_quality(frame)
 
-    # Room
     room_status = (
         "Occupied"
         if present > 0
         else "Empty"
     )
 
-    # YOLO annotated frame
     output = result.plot()
 
-    # Application overlay
     output = draw_overlay(
         output,
         present,
         unique_entries,
+        seated,
+        standing_moving,
         room_status,
         quality,
         tracking_ids,
@@ -420,6 +491,8 @@ def process_frame(frame):
         output,
         present,
         unique_entries,
+        seated,
+        standing_moving,
         event,
         tracking_ids,
         quality,
@@ -428,7 +501,7 @@ def process_frame(frame):
 
 
 # ============================================================
-# VIDEO FILE PROCESSOR
+# VIDEO FILE PROCESSING
 # ============================================================
 
 def run_video_file():
@@ -437,25 +510,27 @@ def run_video_file():
 
     video_placeholder = st.empty()
 
-    # Status placeholders
     st.subheader("📊 Status")
 
-    status_col1, status_col2 = st.columns(2)
+    c1, c2, c3, c4 = st.columns(4)
 
-    with status_col1:
-        present_placeholder = st.empty()
-        entries_placeholder = st.empty()
-        room_placeholder = st.empty()
+    present_placeholder = c1.empty()
+    entries_placeholder = c2.empty()
+    room_placeholder = c3.empty()
+    quality_placeholder = c4.empty()
 
-    with status_col2:
-        quality_placeholder = st.empty()
-        event_placeholder = st.empty()
-        ids_placeholder = st.empty()
+    c5, c6, c7 = st.columns(3)
+
+    seated_placeholder = c5.empty()
+    standing_placeholder = c6.empty()
+    event_placeholder = c7.empty()
+
+    ids_placeholder = st.empty()
 
     if not VIDEO_PATH.exists():
 
         st.error(
-            f"video7.mp4 not found at: {VIDEO_PATH}"
+            f"video7.mp4 not found: {VIDEO_PATH}"
         )
 
         return
@@ -476,11 +551,10 @@ def run_video_file():
 
     while st.session_state.video_running:
 
-        loop_start = time.time()
+        start_time = time.time()
 
         ret, frame = cap.read()
 
-        # Loop video when it reaches end
         if not ret:
 
             cap.set(
@@ -496,6 +570,8 @@ def run_video_file():
                 output,
                 present,
                 unique_entries,
+                seated,
+                standing_moving,
                 event,
                 tracking_ids,
                 quality,
@@ -541,13 +617,19 @@ def run_video_file():
             quality,
         )
 
-        event_placeholder.markdown(
-            f"""
-            <div class="status-box">
-            <b>Event:</b> {event}
-            </div>
-            """,
-            unsafe_allow_html=True,
+        seated_placeholder.metric(
+            "Seated",
+            seated,
+        )
+
+        standing_placeholder.metric(
+            "Standing / Moving",
+            standing_moving,
+        )
+
+        event_placeholder.metric(
+            "Event",
+            event,
         )
 
         ids_text = (
@@ -562,14 +644,13 @@ def run_video_file():
         ids_placeholder.markdown(
             f"""
             <div class="status-box">
-            <b>Tracking IDs:</b><br>
-            {ids_text}
+            <b>Tracking IDs:</b> {ids_text}
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        elapsed = time.time() - loop_start
+        elapsed = time.time() - start_time
 
         sleep_time = frame_delay - elapsed
 
@@ -580,14 +661,10 @@ def run_video_file():
 
 
 # ============================================================
-# WEBRTC WEBCAM PROCESSOR
+# WEBRTC PROCESSOR
 # ============================================================
 
 class SmartCampusVideoProcessor(VideoProcessorBase):
-
-    def __init__(self):
-
-        self.lock = None
 
     def recv(self, frame):
 
@@ -605,12 +682,12 @@ class SmartCampusVideoProcessor(VideoProcessorBase):
 
         return frame.from_ndarray(
             output,
-            format="bgr24"
+            format="bgr24",
         )
 
 
 # ============================================================
-# MAIN SOURCE
+# MAIN
 # ============================================================
 
 if source == "video7.mp4":
@@ -626,8 +703,6 @@ if source == "video7.mp4":
         st.info(
             "Select video7.mp4 and press ▶ Start."
         )
-
-        st.subheader("📊 Status")
 
         c1, c2, c3, c4 = st.columns(4)
 
@@ -651,6 +726,18 @@ if source == "video7.mp4":
             "Waiting",
         )
 
+        c5, c6 = st.columns(2)
+
+        c5.metric(
+            "Seated",
+            0,
+        )
+
+        c6.metric(
+            "Standing / Moving",
+            0,
+        )
+
 
 # ============================================================
 # WEBCAM
@@ -661,7 +748,7 @@ else:
     st.subheader("📹 Live Webcam")
 
     st.info(
-        "Click START below and allow camera access "
+        "Click START and allow camera access "
         "when your browser asks for permission."
     )
 
@@ -677,7 +764,7 @@ else:
         }
     )
 
-    webrtc_ctx = webrtc_streamer(
+    webrtc_streamer(
         key="smart-campus-webcam",
         video_processor_factory=SmartCampusVideoProcessor,
         rtc_configuration=rtc_configuration,
@@ -703,16 +790,16 @@ else:
     )
 
     c3.metric(
-        "Room",
+        "Seated",
         "Live",
     )
 
     c4.metric(
-        "Frame Quality",
+        "Standing / Moving",
         "Live",
     )
 
-    st.info(
-        "Webcam analytics are processed frame-by-frame "
-        "inside the WebRTC video processor."
+    st.caption(
+        "Seated / Standing classification is an estimated "
+        "bounding-box based posture classification."
     )
