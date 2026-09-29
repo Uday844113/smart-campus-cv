@@ -4,3 +4,4 @@ opencv-python-headless
 numpy
 pillow
 lap==0.5.13
+streamlit-webrtc
