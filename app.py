@@ -1,14 +1,16 @@
+import time
+from pathlib import Path
+
 import cv2
 import streamlit as st
-import time
 
 from tracker import PersonTracker
 from analytics import AttendanceAnalytics
 
 
-# =========================================================
+# ============================================================
 # PAGE CONFIG
-# =========================================================
+# ============================================================
 
 st.set_page_config(
     page_title="Smart Campus Computer Vision",
@@ -18,9 +20,68 @@ st.set_page_config(
 )
 
 
-# =========================================================
+# ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+        .main-title {
+            font-size: 42px;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 0;
+        }
+
+        .subtitle {
+            color: #7b8190;
+            font-size: 16px;
+            margin-top: 5px;
+        }
+
+        .metric-card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 18px;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+        }
+
+        .metric-title {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .metric-value {
+            color: #111827;
+            font-size: 30px;
+            font-weight: 700;
+        }
+
+        .status-box {
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+VIDEO_PATH = BASE_DIR / "video7.mp4"
+
+
+# ============================================================
 # SESSION STATE
-# =========================================================
+# ============================================================
 
 if "running" not in st.session_state:
     st.session_state.running = False
@@ -28,108 +89,141 @@ if "running" not in st.session_state:
 if "analytics" not in st.session_state:
     st.session_state.analytics = None
 
+if "tracker" not in st.session_state:
+    st.session_state.tracker = None
 
-# =========================================================
+
+# ============================================================
 # HEADER
-# =========================================================
+# ============================================================
 
-st.title("🏫 Smart Campus Computer Vision")
-
-st.caption(
-    "Live Classroom Monitoring System | "
-    "YOLO + BoT-SORT + Real-Time Analytics"
+st.markdown(
+    '<div class="main-title">🏫 Smart Campus Computer Vision</div>',
+    unsafe_allow_html=True
 )
 
-
-# =========================================================
-# SIDEBAR
-# =========================================================
-
-st.sidebar.header("⚙️ Controls")
-
-
-video_source = st.sidebar.selectbox(
-    "Select Video Source",
-    [
-        "video7.mp4",
-        "Webcam"
-    ]
+st.markdown(
+    '<div class="subtitle">'
+    'Live Classroom Monitoring System | YOLO + BoT-SORT + Real-Time Analytics'
+    '</div>',
+    unsafe_allow_html=True
 )
 
-
-fps_limit = st.sidebar.slider(
-    "Processing FPS",
-    min_value=1,
-    max_value=10,
-    value=5,
-    step=1
-)
+st.divider()
 
 
-confidence = st.sidebar.slider(
-    "Detection Confidence",
-    min_value=0.20,
-    max_value=0.90,
-    value=0.40,
-    step=0.05
-)
+# ============================================================
+# SIDEBAR CONTROLS
+# ============================================================
+
+with st.sidebar:
+
+    st.header("⚙️ Controls")
+
+    source = st.selectbox(
+        "Select Video Source",
+        ["video7.mp4", "Webcam"],
+        index=0
+    )
+
+    processing_fps = st.slider(
+        "Processing FPS",
+        min_value=1,
+        max_value=10,
+        value=5,
+        step=1
+    )
+
+    confidence = st.slider(
+        "Detection Confidence",
+        min_value=0.20,
+        max_value=0.90,
+        value=0.40,
+        step=0.05
+    )
+
+    st.markdown("### 🚪 Entry / Exit")
+
+    line_position = st.slider(
+        "Line Position",
+        min_value=0.20,
+        max_value=0.90,
+        value=0.65,
+        step=0.05
+    )
+
+    entry_direction = st.selectbox(
+        "Entry Direction",
+        ["top_to_bottom", "bottom_to_top"],
+        index=0
+    )
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        start_button = st.button(
+            "▶ Start",
+            use_container_width=True
+        )
+
+    with col2:
+        stop_button = st.button(
+            "⏹ Stop",
+            use_container_width=True
+        )
+
+    reset_button = st.button(
+        "🔄 Reset Analytics",
+        use_container_width=True
+    )
+
+    st.divider()
+
+    st.caption("Cloud Demo")
+    st.info(
+        "For Streamlit Cloud, use video7.mp4. "
+        "The Webcam option is intended for local execution."
+    )
 
 
-# =========================================================
-# ENTRY / EXIT
-# =========================================================
-
-st.sidebar.subheader("🚪 Entry / Exit")
-
-
-line_position = st.sidebar.slider(
-    "Line Position",
-    min_value=0.20,
-    max_value=0.90,
-    value=0.65,
-    step=0.05
-)
-
-
-entry_direction = st.sidebar.selectbox(
-    "Entry Direction",
-    [
-        "top_to_bottom",
-        "bottom_to_top"
-    ]
-)
-
-
-st.sidebar.divider()
-
-
-# =========================================================
-# BUTTONS
-# =========================================================
-
-start_button = st.sidebar.button(
-    "▶️ Start",
-    use_container_width=True
-)
-
-stop_button = st.sidebar.button(
-    "⏹️ Stop",
-    use_container_width=True
-)
-
-reset_button = st.sidebar.button(
-    "🔄 Reset Analytics",
-    use_container_width=True
-)
-
-
-# =========================================================
+# ============================================================
 # BUTTON ACTIONS
-# =========================================================
+# ============================================================
 
 if start_button:
-
     st.session_state.running = True
+
+if stop_button:
+    st.session_state.running = False
+
+if reset_button:
+
+    if st.session_state.analytics is not None:
+        st.session_state.analytics.reset()
+
+    st.session_state.running = False
+
+    st.success("Analytics reset successfully.")
+
+
+# ============================================================
+# CREATE TRACKER / ANALYTICS
+# ============================================================
+
+if st.session_state.tracker is None:
+
+    try:
+        st.session_state.tracker = PersonTracker(
+            model_name="yolo11n.pt"
+        )
+    except Exception as e:
+        st.error(f"Unable to load YOLO model: {e}")
+        st.stop()
+
+
+if st.session_state.analytics is None:
 
     st.session_state.analytics = AttendanceAnalytics(
         line_position=line_position,
@@ -137,558 +231,557 @@ if start_button:
     )
 
 
-if stop_button:
+# Update analytics configuration
 
-    st.session_state.running = False
-
-
-if reset_button:
-
-    if st.session_state.analytics is not None:
-
-        st.session_state.analytics.reset()
-
-    st.success(
-        "Analytics reset successfully."
-    )
+st.session_state.analytics.line_position = line_position
+st.session_state.analytics.entry_direction = entry_direction
 
 
-# =========================================================
+tracker = st.session_state.tracker
+analytics = st.session_state.analytics
+
+
+# ============================================================
 # TOP METRICS
-# =========================================================
+# ============================================================
 
-col1, col2, col3, col4 = st.columns(4)
+metric1, metric2, metric3, metric4 = st.columns(4)
 
+with metric1:
+    present_placeholder = st.empty()
 
-with col1:
+with metric2:
+    entries_placeholder = st.empty()
 
-    attendance_box = st.empty()
+with metric3:
+    room_placeholder = st.empty()
 
-
-with col2:
-
-    unique_box = st.empty()
-
-
-with col3:
-
-    room_box = st.empty()
+with metric4:
+    quality_placeholder = st.empty()
 
 
-with col4:
+# ============================================================
+# LIVE STREAM / STATUS
+# ============================================================
 
-    quality_box = st.empty()
+stream_col, status_col = st.columns([1.8, 1])
 
-
-# =========================================================
-# MAIN LAYOUT
-# =========================================================
-
-st.divider()
-
-
-video_col, status_col = st.columns(
-    [3, 1]
-)
-
-
-# =========================================================
-# VIDEO
-# =========================================================
-
-with video_col:
+with stream_col:
 
     st.subheader("📹 Live Stream")
 
     video_placeholder = st.empty()
 
-
-# =========================================================
-# STATUS
-# =========================================================
-
 with status_col:
 
     st.subheader("📊 Status")
 
-    detection_box = st.empty()
+    persons_placeholder = st.empty()
 
-    event_box = st.empty()
+    event_placeholder = st.empty()
 
-    tracking_box = st.empty()
+    tracking_placeholder = st.empty()
 
-    line_box = st.empty()
+    line_placeholder = st.empty()
 
 
-# =========================================================
-# WAITING STATE
-# =========================================================
+# ============================================================
+# INITIAL DISPLAY
+# ============================================================
 
 if not st.session_state.running:
 
-    attendance_box.metric(
-        "👥 Currently Present",
+    present_placeholder.metric(
+        "Currently Present",
         0
     )
 
-    unique_box.metric(
-        "🔢 Unique Entries",
+    entries_placeholder.metric(
+        "Unique Entries",
         0
     )
 
-    room_box.metric(
-        "🏫 Room",
+    room_placeholder.metric(
+        "Room",
         "Waiting"
     )
 
-    quality_box.metric(
-        "📷 Frame Quality",
+    quality_placeholder.metric(
+        "Frame Quality",
         "Waiting"
     )
 
-    detection_box.info(
-        "👤 Persons Detected: Waiting"
+    persons_placeholder.info(
+        "Press ▶ Start to begin processing."
     )
 
-    event_box.info(
-        "ℹ️ Event: Waiting..."
+    event_placeholder.info(
+        "Event: Waiting..."
     )
 
-    tracking_box.info(
-        "🎯 Tracking: Not started"
+    tracking_placeholder.info(
+        "Tracking IDs: --"
     )
 
-    line_box.info(
-        "🚪 Entry/Exit Line: Not active"
+    line_placeholder.info(
+        f"Entry/Exit Line: {line_position:.2f}"
     )
 
 
-# =========================================================
-# LIVE PROCESSING
-# =========================================================
+# ============================================================
+# VIDEO SOURCE
+# ============================================================
 
-if st.session_state.running:
+def open_video_source(selected_source):
 
-    # -----------------------------------------------------
-    # LOAD TRACKER
-    # -----------------------------------------------------
+    if selected_source == "video7.mp4":
 
-    with st.spinner(
-        "Loading YOLO + BoT-SORT..."
-    ):
+        if not VIDEO_PATH.exists():
 
-        tracker = PersonTracker(
-            model_name="yolo11n.pt"
-        )
+            st.error(
+                f"Video file not found: {VIDEO_PATH}"
+            )
 
-
-    # -----------------------------------------------------
-    # ANALYTICS
-    # -----------------------------------------------------
-
-    if st.session_state.analytics is None:
-
-        st.session_state.analytics = AttendanceAnalytics(
-            line_position=line_position,
-            entry_direction=entry_direction
-        )
-
-
-    analytics = st.session_state.analytics
-
-
-    # -----------------------------------------------------
-    # VIDEO SOURCE
-    # -----------------------------------------------------
-
-    if video_source == "video7.mp4":
+            st.stop()
 
         cap = cv2.VideoCapture(
-            "video7.mp4"
+            str(VIDEO_PATH)
         )
 
     else:
 
-        cap = cv2.VideoCapture(
-            0
+        cap = cv2.VideoCapture(0)
+
+        # Webcam resolution
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+    return cap
+
+
+# ============================================================
+# FRAME QUALITY
+# ============================================================
+
+def get_frame_quality(frame):
+
+    gray = cv2.cvtColor(
+        frame,
+        cv2.COLOR_BGR2GRAY
+    )
+
+    sharpness = cv2.Laplacian(
+        gray,
+        cv2.CV_64F
+    ).var()
+
+    if sharpness > 100:
+        return "Clear"
+
+    elif sharpness > 40:
+        return "Moderate"
+
+    else:
+        return "Blurry"
+
+
+# ============================================================
+# DRAW INFORMATION
+# ============================================================
+
+def draw_overlay(
+    frame,
+    present,
+    unique_entries,
+    room_status,
+    quality,
+    tracking_ids,
+    line_y
+):
+
+    height, width = frame.shape[:2]
+
+    # --------------------------------------------------------
+    # Entry / Exit line
+    # --------------------------------------------------------
+
+    cv2.line(
+        frame,
+        (0, line_y),
+        (width, line_y),
+        (0, 255, 255),
+        3
+    )
+
+    cv2.putText(
+        frame,
+        "ENTRY / EXIT LINE",
+        (20, max(line_y - 10, 30)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (0, 255, 255),
+        2
+    )
+
+    # --------------------------------------------------------
+    # Background panel
+    # --------------------------------------------------------
+
+    overlay = frame.copy()
+
+    cv2.rectangle(
+        overlay,
+        (15, 15),
+        (360, 155),
+        (20, 20, 20),
+        -1
+    )
+
+    frame = cv2.addWeighted(
+        overlay,
+        0.65,
+        frame,
+        0.35,
+        0
+    )
+
+    # --------------------------------------------------------
+    # Information
+    # --------------------------------------------------------
+
+    cv2.putText(
+        frame,
+        f"Present: {present}",
+        (30, 45),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        f"Unique Entries: {unique_entries}",
+        (30, 75),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (255, 255, 255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        f"Room: {room_status}",
+        (30, 105),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (255, 255, 255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        f"Quality: {quality}",
+        (30, 135),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (255, 255, 255),
+        2
+    )
+
+    # --------------------------------------------------------
+    # Tracking IDs
+    # --------------------------------------------------------
+
+    if tracking_ids:
+
+        ids_text = ", ".join(
+            str(track_id)
+            for track_id in sorted(tracking_ids)
         )
 
-        cap.set(
-            cv2.CAP_PROP_FRAME_WIDTH,
-            1280
+        if len(ids_text) > 45:
+            ids_text = ids_text[:45] + "..."
+
+        cv2.putText(
+            frame,
+            f"IDs: {ids_text}",
+            (20, height - 25),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            2
         )
 
-        cap.set(
-            cv2.CAP_PROP_FRAME_HEIGHT,
-            720
-        )
+    return frame
 
 
-    # -----------------------------------------------------
-    # CHECK SOURCE
-    # -----------------------------------------------------
+# ============================================================
+# MAIN PROCESSING LOOP
+# ============================================================
+
+if st.session_state.running:
+
+    cap = open_video_source(source)
 
     if not cap.isOpened():
 
+        source_name = (
+            str(VIDEO_PATH)
+            if source == "video7.mp4"
+            else "Webcam"
+        )
+
         st.error(
-            "❌ Unable to open video source."
+            f"Unable to open video source: {source_name}"
         )
 
         st.session_state.running = False
 
         st.stop()
 
+    # --------------------------------------------------------
+    # Video FPS
+    # --------------------------------------------------------
 
-    frame_delay = 1 / fps_limit
+    source_fps = cap.get(
+        cv2.CAP_PROP_FPS
+    )
 
+    if source_fps <= 0:
+        source_fps = 30
 
-    # =====================================================
-    # FRAME LOOP
-    # =====================================================
+    # Delay for requested processing FPS
+    frame_delay = 1.0 / processing_fps
 
-    while cap.isOpened():
+    # --------------------------------------------------------
+    # Processing
+    # --------------------------------------------------------
+
+    while st.session_state.running:
 
         loop_start = time.time()
 
-
-        # -------------------------------------------------
-        # READ FRAME
-        # -------------------------------------------------
-
         ret, frame = cap.read()
 
+        # ----------------------------------------------------
+        # Video ended
+        # ----------------------------------------------------
 
         if not ret:
 
-            st.info(
-                "🎬 Video stream ended."
+            if source == "video7.mp4":
+
+                cap.set(
+                    cv2.CAP_PROP_POS_FRAMES,
+                    0
+                )
+
+                continue
+
+            else:
+
+                st.warning(
+                    "Unable to read frame from webcam."
+                )
+
+                break
+
+        # ----------------------------------------------------
+        # YOLO + BoT-SORT
+        # ----------------------------------------------------
+
+        try:
+
+            result = tracker.model.track(
+                frame,
+                persist=True,
+                classes=[0],
+                conf=confidence,
+                tracker="botsort_reid.yaml",
+                verbose=False
+            )[0]
+
+        except Exception as e:
+
+            st.error(
+                f"Tracking error: {e}"
             )
 
             break
 
+        # ----------------------------------------------------
+        # Analytics
+        # ----------------------------------------------------
 
-        # -------------------------------------------------
-        # YOLO + BOtSORT
-        # -------------------------------------------------
+        try:
 
-        result = tracker.track(
-            frame
-        )
-
-
-        # -------------------------------------------------
-        # ANALYTICS
-        # -------------------------------------------------
-
-        (
-            current_present,
-            unique_entries,
-            last_event,
-            current_ids,
-            line_y
-        ) = analytics.update(
-            frame,
-            result.boxes
-        )
-
-
-        # -------------------------------------------------
-        # PERSON COUNT
-        # -------------------------------------------------
-
-        if result.boxes is not None:
-
-            person_count = len(
-                result.boxes
+            present, unique_entries, event, tracking_ids, line_y = (
+                analytics.update(
+                    frame,
+                    result.boxes
+                )
             )
 
+        except Exception as e:
+
+            st.error(
+                f"Analytics error: {e}"
+            )
+
+            break
+
+        # ----------------------------------------------------
+        # Frame Quality
+        # ----------------------------------------------------
+
+        quality = get_frame_quality(frame)
+
+        # ----------------------------------------------------
+        # Room Status
+        # ----------------------------------------------------
+
+        if present > 0:
+            room_status = "Occupied"
         else:
+            room_status = "Empty"
 
-            person_count = 0
-
-
-        # =================================================
-        # ANNOTATED FRAME
-        # =================================================
+        # ----------------------------------------------------
+        # Draw YOLO boxes
+        # ----------------------------------------------------
 
         annotated_frame = result.plot()
 
+        # ----------------------------------------------------
+        # Draw application overlay
+        # ----------------------------------------------------
 
-        # =================================================
-        # ENTRY / EXIT LINE
-        # =================================================
-
-        cv2.line(
+        annotated_frame = draw_overlay(
             annotated_frame,
-            (0, line_y),
-            (
-                annotated_frame.shape[1],
-                line_y
-            ),
-            (0, 255, 255),
-            3
+            present,
+            unique_entries,
+            room_status,
+            quality,
+            tracking_ids,
+            line_y
         )
 
+        # ----------------------------------------------------
+        # Convert BGR -> RGB
+        # ----------------------------------------------------
 
-        cv2.putText(
-            annotated_frame,
-            "ENTRY / EXIT LINE",
-            (
-                20,
-                max(
-                    30,
-                    line_y - 10
-                )
-            ),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            (0, 255, 255),
-            2
-        )
-
-
-        # =================================================
-        # ROOM STATUS
-        # =================================================
-
-        if current_present > 0:
-
-            room_status = "OCCUPIED"
-
-        else:
-
-            room_status = "EMPTY"
-
-
-        # =================================================
-        # FRAME QUALITY
-        # =================================================
-
-        gray = cv2.cvtColor(
-            frame,
-            cv2.COLOR_BGR2GRAY
-        )
-
-        sharpness = cv2.Laplacian(
-            gray,
-            cv2.CV_64F
-        ).var()
-
-
-        if sharpness > 100:
-
-            frame_quality = "Clear"
-
-        elif sharpness > 40:
-
-            frame_quality = "Moderate"
-
-        else:
-
-            frame_quality = "Blurry"
-
-
-        # =================================================
-        # VIDEO OVERLAY
-        # =================================================
-
-        cv2.putText(
-            annotated_frame,
-            f"Room: {room_status}",
-            (20, 35),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.75,
-            (0, 255, 0),
-            2
-        )
-
-
-        cv2.putText(
-            annotated_frame,
-            f"Present: {current_present}",
-            (20, 68),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.75,
-            (0, 255, 0),
-            2
-        )
-
-
-        cv2.putText(
-            annotated_frame,
-            f"Unique Entries: {unique_entries}",
-            (20, 101),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.70,
-            (0, 255, 0),
-            2
-        )
-
-
-        # =================================================
-        # CURRENT TRACKING IDS
-        # =================================================
-
-        sorted_ids = sorted(
-            list(current_ids)
-        )
-
-
-        if sorted_ids:
-
-            id_text = (
-                "Tracking IDs: "
-                + ", ".join(
-                    map(
-                        str,
-                        sorted_ids
-                    )
-                )
-            )
-
-            cv2.putText(
-                annotated_frame,
-                id_text,
-                (20, 134),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.50,
-                (255, 255, 0),
-                2
-            )
-
-
-        # =================================================
-        # DISPLAY
-        # =================================================
-
-        display_frame = cv2.cvtColor(
+        annotated_frame = cv2.cvtColor(
             annotated_frame,
             cv2.COLOR_BGR2RGB
         )
 
+        # ----------------------------------------------------
+        # Display video
+        # ----------------------------------------------------
 
         video_placeholder.image(
-            display_frame,
+            annotated_frame,
             channels="RGB",
             use_container_width=True
         )
 
+        # ----------------------------------------------------
+        # Update metrics
+        # ----------------------------------------------------
 
-        # =================================================
-        # TOP METRICS
-        # =================================================
-
-        attendance_box.metric(
-            "👥 Currently Present",
-            current_present
+        present_placeholder.metric(
+            "Currently Present",
+            present
         )
 
-
-        unique_box.metric(
-            "🔢 Unique Entries",
+        entries_placeholder.metric(
+            "Unique Entries",
             unique_entries
         )
 
-
-        room_box.metric(
-            "🏫 Room",
+        room_placeholder.metric(
+            "Room",
             room_status
         )
 
-
-        quality_box.metric(
-            "📷 Frame Quality",
-            frame_quality
+        quality_placeholder.metric(
+            "Frame Quality",
+            quality
         )
 
+        # ----------------------------------------------------
+        # Update status
+        # ----------------------------------------------------
 
-        # =================================================
-        # STATUS
-        # =================================================
-
-        detection_box.info(
-            f"👤 Persons Detected: "
-            f"{person_count}"
+        persons_placeholder.markdown(
+            f"""
+            <div class="status-box">
+            <b>Persons Detected:</b> {present}
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
+        event_placeholder.markdown(
+            f"""
+            <div class="status-box">
+            <b>Event:</b> {event}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-        # =================================================
-        # EVENT
-        # =================================================
+        if tracking_ids:
 
-        if "Entry detected" in last_event:
-
-            event_box.success(
-                f"🟢 {last_event}"
+            ids_text = ", ".join(
+                str(x)
+                for x in sorted(tracking_ids)
             )
 
-        elif "Exit detected" in last_event:
-
-            event_box.warning(
-                f"🔴 {last_event}"
+            tracking_placeholder.markdown(
+                f"""
+                <div class="status-box">
+                <b>Tracking IDs:</b><br>
+                {ids_text}
+                </div>
+                """,
+                unsafe_allow_html=True
             )
 
         else:
 
-            event_box.info(
-                f"ℹ️ {last_event}"
+            tracking_placeholder.markdown(
+                """
+                <div class="status-box">
+                <b>Tracking IDs:</b> None
+                </div>
+                """,
+                unsafe_allow_html=True
             )
 
-
-        # =================================================
-        # TRACKING
-        # =================================================
-
-        if current_ids:
-
-            tracking_box.success(
-                "🎯 Tracking Active | IDs: "
-                + ", ".join(
-                    map(
-                        str,
-                        sorted_ids
-                    )
-                )
-            )
-
-        else:
-
-            tracking_box.warning(
-                "⚠️ No tracking IDs"
-            )
-
-
-        # =================================================
-        # LINE
-        # =================================================
-
-        line_box.info(
-            f"🚪 Line: "
-            f"{int(line_position * 100)}%"
-            f" | Entry: "
-            f"{entry_direction}"
+        line_placeholder.markdown(
+            f"""
+            <div class="status-box">
+            <b>Entry/Exit Line:</b>
+            {line_position:.2f}
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
+        # ----------------------------------------------------
+        # Maintain processing FPS
+        # ----------------------------------------------------
 
-        # =================================================
-        # FPS LIMIT
-        # =================================================
+        elapsed = time.time() - loop_start
 
-        elapsed = (
-            time.time()
-            - loop_start
-        )
+        remaining = frame_delay - elapsed
 
-        time.sleep(
-            max(
-                0,
-                frame_delay - elapsed
-            )
-        )
+        if remaining > 0:
+            time.sleep(remaining)
 
-
-    # =====================================================
-    # RELEASE
-    # =====================================================
+    # --------------------------------------------------------
+    # Release source
+    # --------------------------------------------------------
 
     cap.release()
